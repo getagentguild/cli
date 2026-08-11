@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
 import { join, dirname, basename, relative, sep } from 'node:path'
 
 function toPosix(p) {
