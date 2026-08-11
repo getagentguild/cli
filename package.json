@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "files": ["bin", "src"],
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0"
