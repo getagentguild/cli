@@ -1,7 +1,10 @@
 const DELIM = '---'
 
 export function parseFrontmatter(text) {
-  const lines = text.split('\n')
+  // Split on both LF and CRLF. Splitting on '\n' alone leaves a trailing '\r'
+  // on every line, so the closing-delimiter search below never matches and a
+  // CRLF file silently parses as "no frontmatter".
+  const lines = text.split(/\r?\n/)
   if (lines[0]?.trim() !== DELIM) return { data: {}, body: text }
 
   const closeIdx = lines.indexOf(DELIM, 1)

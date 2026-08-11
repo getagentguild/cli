@@ -44,3 +44,11 @@ test('keeps colons that appear inside a value', () => {
   const { data } = parseFrontmatter(input)
   assert.equal(data.description, 'Use when: you need it')
 })
+
+test('parses frontmatter in a file with CRLF line endings', () => {
+  const input = '---\r\nname: crlf-agent\r\ndescription: Use when testing CRLF\r\n---\r\n\r\n# Body\r\n'
+  const { data, body } = parseFrontmatter(input)
+  assert.equal(data.name, 'crlf-agent')
+  assert.equal(data.description, 'Use when testing CRLF')
+  assert.match(body, /# Body/)
+})
