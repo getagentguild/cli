@@ -31,6 +31,20 @@ function validateItem(item, index, errors) {
     errors.push(`${at}: "tags" must be an array`)
   }
 
+  // Paths are joined against the kit root by both the validator and the
+  // installer. An absolute path or a ".." segment escapes the kit directory,
+  // so the installer would read a file outside the kit and copy it into the
+  // buyer's project. Reject them here rather than relying on existence checks,
+  // which confirm a file is there but not that it is *inside* the kit.
+  if (typeof item.path === 'string' && item.path.trim() !== '') {
+    if (item.path.startsWith('/') || /^[A-Za-z]:/.test(item.path)) {
+      errors.push(`${at}: "path" must be relative to the kit root (got "${item.path}")`)
+    }
+    if (item.path.split('/').includes('..')) {
+      errors.push(`${at}: "path" must not contain ".." segments (got "${item.path}")`)
+    }
+  }
+
   const p = item.provenance
   if (!isPlainObject(p)) {
     errors.push(`${at}: "provenance" must be an object`)
@@ -46,10 +60,27 @@ function validateItem(item, index, errors) {
         errors.push(`${at}: derived items require provenance.${field}`)
       }
     }
-    if (typeof p.license === 'string' && !ALLOWED_LICENSES.includes(p.license)) {
+    // Trim before comparing so "MIT " is accepted rather than reported as an
+    // impermissible license, which would send the author hunting the wrong bug.
+    const license = typeof p.license === 'string' ? p.license.trim() : p.license
+    if (typeof license === 'string' && !ALLOWED_LICENSES.includes(license)) {
       errors.push(
-        `${at}: license "${p.license}" is not permitted. Allowed: ${ALLOWED_LICENSES.join(', ')}`
+        `${at}: license "${license}" is not permitted. Allowed: ${ALLOWED_LICENSES.join(', ')}`
       )
+    }
+  } else {
+    // origin === 'original'. Attribution fields here are contradictory: the
+    // realistic cause is cloning a derived entry as a template and flipping
+    // origin without clearing the old fields, which would silently ship
+    // third-party code as original work and skip the license gate entirely.
+    for (const field of ['source', 'license', 'copyright']) {
+      if (p[field] !== undefined && String(p[field]).trim() !== '') {
+        errors.push(
+          `${at}: provenance.origin is "original" but provenance.${field} is set. ` +
+            `Original items carry no third-party attribution — if this item is derived, ` +
+            `set origin to "derived".`
+        )
+      }
     }
   }
 }
@@ -71,11 +102,18 @@ export function validateRegistry(registry) {
 
   registry.items.forEach((item, i) => validateItem(item, i, errors))
 
-  const seen = new Set()
+  const seenIds = new Set()
+  const seenPaths = new Set()
   for (const item of registry.items) {
-    if (!isPlainObject(item) || typeof item.id !== 'string') continue
-    if (seen.has(item.id)) errors.push(`duplicate item id "${item.id}"`)
-    seen.add(item.id)
+    if (!isPlainObject(item)) continue
+    if (typeof item.id === 'string') {
+      if (seenIds.has(item.id)) errors.push(`duplicate item id "${item.id}"`)
+      seenIds.add(item.id)
+    }
+    if (typeof item.path === 'string') {
+      if (seenPaths.has(item.path)) errors.push(`duplicate item path "${item.path}"`)
+      seenPaths.add(item.path)
+    }
   }
 
   return errors
