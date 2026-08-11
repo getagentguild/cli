@@ -1,0 +1,20 @@
+{
+  "kit": "mobile",
+  "version": "1.0.0",
+  "items": [
+    {
+      "id": "postgres-pro",
+      "type": "agent",
+      "path": "agents/postgres-pro.md",
+      "name": "Postgres Pro",
+      "description": "Use when optimizing Postgres queries",
+      "tags": ["database"],
+      "provenance": {
+        "origin": "derived",
+        "source": "https://github.com/foo/agents",
+        "license": "MIT",
+        "copyright": "Copyright (c) 2024 Foo Bar"
+      }
+    }
+  ]
+}

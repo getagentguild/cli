@@ -1,3 +1,5 @@
+import { validateKit } from './validate.js'
+
 const HELP = `
 agentguild — install AgentGuild kits into your project
 
@@ -44,6 +46,23 @@ export async function runCli(argv) {
     console.log(HELP)
     return 0
   }
+
+  if (opts.command === 'validate') {
+    const dir = opts.target ?? process.cwd()
+    const { errors, counts } = await validateKit(dir)
+    if (errors.length > 0) {
+      console.error(`✗ ${errors.length} validation error(s) in ${dir}\n`)
+      for (const err of errors) console.error(`  • ${err}`)
+      return 1
+    }
+    const total = counts.agent + counts.skill + counts.command
+    console.log(
+      `✓ ${dir} is valid — ${total} items ` +
+        `(${counts.agent} agents, ${counts.skill} skills, ${counts.command} commands)`
+    )
+    return 0
+  }
+
   console.log(HELP)
   return 0
 }
