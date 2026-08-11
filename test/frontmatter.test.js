@@ -52,3 +52,26 @@ test('parses frontmatter in a file with CRLF line endings', () => {
   assert.equal(data.description, 'Use when testing CRLF')
   assert.match(body, /# Body/)
 })
+
+test('strips single quotes as well as double quotes', () => {
+  const { data } = parseFrontmatter("---\nname: 'single-quoted'\n---\nbody\n")
+  assert.equal(data.name, 'single-quoted')
+})
+
+test('falls back to the whole text when the block is never closed', () => {
+  const input = '---\nname: x\nbody with no closing delimiter\n'
+  const { data, body } = parseFrontmatter(input)
+  assert.deepEqual(data, {})
+  assert.equal(body, input)
+})
+
+test('an empty value parses as an empty string, not undefined', () => {
+  const { data } = parseFrontmatter('---\nname:\n---\nbody\n')
+  assert.equal(data.name, '')
+  assert.ok('name' in data)
+})
+
+test('tolerates indented keys', () => {
+  const { data } = parseFrontmatter('---\n  name: indented\n---\nbody\n')
+  assert.equal(data.name, 'indented')
+})
