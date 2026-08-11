@@ -150,3 +150,9 @@ test('rejects two items sharing the same path', () => {
   }
   assert.ok(validateRegistry(bad).some((e) => /duplicate item path/.test(e)))
 })
+
+test('accepts every valid kit name', () => {
+  for (const kit of ['engineering', 'marketing', 'mobile', 'games']) {
+    assert.deepEqual(validateRegistry({ ...valid, kit }), [], `kit "${kit}" should be valid`)
+  }
+})

@@ -7,7 +7,7 @@ export const ALLOWED_LICENSES = [
   'CC0-1.0',
 ]
 export const ITEM_TYPES = ['agent', 'skill', 'command']
-export const KIT_NAMES = ['engineering', 'marketing', 'mobile']
+export const KIT_NAMES = ['engineering', 'marketing', 'mobile', 'games']
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
