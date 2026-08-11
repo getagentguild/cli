@@ -1,0 +1,16 @@
+{
+  "name": "@agentguild/cli",
+  "version": "0.1.0",
+  "description": "Install AgentGuild agents, skills, and commands into your project's .claude/ folder",
+  "type": "module",
+  "bin": { "agentguild": "./bin/agentguild.js" },
+  "engines": { "node": ">=22" },
+  "files": ["bin", "src"],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0"
+  },
+  "license": "UNLICENSED"
+}
