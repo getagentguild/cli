@@ -1,14 +1,26 @@
+import { readFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { validateKit } from './validate.js'
+import { installItems } from './install.js'
+import { writeClaudeMd } from './claudemd.js'
+import {
+  KIT_REPOS,
+  checkAccess,
+  syncKit,
+  currentGitHubUser,
+  diagnose,
+} from './discover.js'
 
 const HELP = `
 agentguild — install AgentGuild kits into your project
 
 Usage:
-  agentguild [options]              Install kits you have access to
+  agentguild [dir]                  Install kits you have access to
   agentguild validate <dir>         Validate a kit directory (used by CI)
 
 Options:
-  --kit=<name>     Install only this kit (engineering|marketing|mobile)
+  --kit=<name>     Install only this kit (${Object.keys(KIT_REPOS).join('|')})
   --from=<dir>     Install from a local kit directory instead of GitHub
   --yes            Accept defaults, no prompts
   --dry-run        Show what would change without writing
@@ -40,6 +52,117 @@ export function parseArgs(argv) {
   return opts
 }
 
+function claudeMdBlock(kits) {
+  const names = kits.map((k) => k.registry.kit).join(', ')
+  const total = kits.reduce((sum, k) => sum + k.registry.items.length, 0)
+  return [
+    `## AgentGuild`,
+    ``,
+    `This project has ${total} AgentGuild items installed (${names}).`,
+    `Agents live in .claude/agents, skills in .claude/skills, commands in .claude/commands.`,
+    `Re-run \`npx @agentguild/cli\` to update. Edited files are never overwritten.`,
+  ].join('\n')
+}
+
+async function loadKitDir(kitDir) {
+  const { errors } = await validateKit(kitDir)
+  if (errors.length > 0) {
+    console.error(`✗ ${kitDir} failed validation:\n`)
+    for (const err of errors) console.error(`  • ${err}`)
+    return null
+  }
+  const registry = JSON.parse(await readFile(join(kitDir, 'registry.json'), 'utf8'))
+  return { kitDir, registry }
+}
+
+async function resolveKits(opts) {
+  if (opts.from) {
+    const kit = await loadKitDir(opts.from)
+    return kit ? [kit] : null
+  }
+
+  const cacheDir = join(homedir(), '.agentguild', 'cache')
+  await mkdir(cacheDir, { recursive: true })
+
+  const wanted = opts.kit ? [opts.kit] : Object.keys(KIT_REPOS)
+  const kits = []
+  const denied = []
+
+  for (const name of wanted) {
+    if (!KIT_REPOS[name]) {
+      console.error(`Unknown kit "${name}". Expected one of: ${Object.keys(KIT_REPOS).join(', ')}`)
+      return null
+    }
+    if (!(await checkAccess(KIT_REPOS[name]))) {
+      denied.push(name)
+      continue
+    }
+    const dir = await syncKit(name, cacheDir)
+    const kit = await loadKitDir(dir)
+    if (kit) kits.push(kit)
+  }
+
+  if (kits.length === 0) {
+    const ghUser = await currentGitHubUser()
+    for (const name of denied) console.error(`\n${diagnose(name, ghUser)}`)
+    return null
+  }
+
+  for (const name of denied) console.log(`(skipping ${name} — no access)`)
+  return kits
+}
+
+export async function runInstall(opts) {
+  const projectDir = opts.target ?? process.cwd()
+
+  const kits = await resolveKits(opts)
+  if (kits === null) return 1
+
+  const totals = { written: 0, skipped: 0, conflicts: [] }
+
+  for (const kit of kits) {
+    let itemIds = kit.registry.items.map((i) => i.id)
+    if (!opts.yes) {
+      const { pickItems } = await import('./prompts.js')
+      const picked = await pickItems(kit.registry)
+      if (picked === null) {
+        console.log('Cancelled.')
+        return 1
+      }
+      itemIds = picked
+    }
+
+    const res = await installItems({
+      kitDir: kit.kitDir,
+      registry: kit.registry,
+      itemIds,
+      projectDir,
+      dryRun: opts.dryRun,
+    })
+
+    totals.written += res.written.length
+    totals.skipped += res.skipped.length
+    totals.conflicts.push(...res.conflicts)
+  }
+
+  const { backedUp } = await writeClaudeMd({
+    projectDir,
+    block: claudeMdBlock(kits),
+    dryRun: opts.dryRun,
+  })
+
+  const prefix = opts.dryRun ? 'Would install' : 'Installed'
+  console.log(`\n${prefix} ${totals.written} file(s) into ${projectDir}`)
+  if (totals.skipped > 0) console.log(`${totals.skipped} already up to date`)
+  if (backedUp) console.log(`Backed up your CLAUDE.md to ${backedUp}`)
+  if (totals.conflicts.length > 0) {
+    console.log(`\nLeft ${totals.conflicts.length} modified file(s) untouched:`)
+    for (const c of totals.conflicts) console.log(`  • ${c}`)
+  }
+
+  return 0
+}
+
 export async function runCli(argv) {
   const opts = parseArgs(argv)
   if (opts.help) {
@@ -63,6 +186,5 @@ export async function runCli(argv) {
     return 0
   }
 
-  console.log(HELP)
-  return 0
+  return runInstall(opts)
 }
