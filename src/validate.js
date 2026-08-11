@@ -1,5 +1,5 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { readFile, readdir, stat, realpath } from 'node:fs/promises'
+import { join, relative, sep, normalize } from 'node:path'
 import { validateRegistry } from './registry.js'
 import { parseFrontmatter } from './frontmatter.js'
 
@@ -20,7 +20,7 @@ async function exists(path) {
   }
 }
 
-async function walkMarkdown(dir, base = dir, out = []) {
+async function walkMarkdown(dir, out = []) {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -29,10 +29,25 @@ async function walkMarkdown(dir, base = dir, out = []) {
   }
   for (const entry of entries) {
     const full = join(dir, entry.name)
-    if (entry.isDirectory()) await walkMarkdown(full, base, out)
+    if (entry.isDirectory()) await walkMarkdown(full, out)
     else if (entry.name.endsWith('.md')) out.push(full)
   }
   return out
+}
+
+// registry.js rejects ".." and absolute paths, but a path that is textually
+// clean can still resolve outside the kit via a symlink. stat() and readFile()
+// both follow symlinks, so without this a `command` item — which requires no
+// frontmatter and is therefore never parsed — could point at any file on disk
+// and validate clean, after which the installer would copy it into the buyer's
+// project. Resolve to a real path and require containment.
+async function resolvesInsideKit(kitRealRoot, target) {
+  try {
+    const real = await realpath(target)
+    return real === kitRealRoot || real.startsWith(kitRealRoot + sep)
+  } catch {
+    return false
+  }
 }
 
 export async function validateKit(kitDir) {
@@ -52,14 +67,26 @@ export async function validateKit(kitDir) {
   if (errors.length > 0) return { errors, counts }
 
   const registered = new Set()
+  const kitRealRoot = await realpath(kitDir).catch(() => kitDir)
 
   for (const item of registry.items) {
     counts[item.type] += 1
     const itemPath = join(kitDir, item.path)
-    registered.add(item.path.split('/').join(sep))
+    // normalize() so a registry path written as "./agents/a.md" matches the
+    // "agents/a.md" that relative() produces during the orphan sweep below.
+    // Without it a perfectly valid item reports itself as an unregistered file.
+    registered.add(normalize(item.path.split('/').join(sep)))
 
     if (!(await exists(itemPath))) {
       errors.push(`item "${item.id}": path ${item.path} does not exist on disk`)
+      continue
+    }
+
+    if (!(await resolvesInsideKit(kitRealRoot, itemPath))) {
+      errors.push(
+        `item "${item.id}": path ${item.path} resolves outside the kit directory ` +
+          `(symlink?). Items must be real files inside the kit.`
+      )
       continue
     }
 
@@ -78,7 +105,7 @@ export async function validateKit(kitDir) {
     const files = await walkMarkdown(join(kitDir, dir))
     for (const file of files) {
       const rel = relative(kitDir, file)
-      if (!registered.has(rel)) {
+      if (!registered.has(normalize(rel))) {
         errors.push(`${rel} exists on disk but has no registry entry`)
       }
     }

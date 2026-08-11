@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, symlink, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { validateKit } from '../src/validate.js'
 
@@ -78,4 +78,51 @@ test('reports a missing registry file', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ag-none-'))
   const { errors } = await validateKit(dir)
   assert.ok(errors.some((e) => /registry\.json/.test(e)))
+})
+
+test('accepts a registry path written with a ./ prefix', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ag-dotslash-'))
+  await mkdir(join(dir, 'agents'), { recursive: true })
+  await writeFile(
+    join(dir, 'agents', 'a.md'),
+    '---\nname: a\ndescription: d\ntools: Read\nmodel: sonnet\n---\n\nbody\n'
+  )
+  await writeFile(
+    join(dir, 'registry.json'),
+    JSON.stringify({
+      kit: 'mobile',
+      version: '1.0.0',
+      items: [
+        {
+          id: 'a', type: 'agent', path: './agents/a.md', name: 'A',
+          description: 'd', tags: [], provenance: { origin: 'original' },
+        },
+      ],
+    })
+  )
+  const { errors } = await validateKit(dir)
+  assert.deepEqual(errors, [])
+})
+
+test('rejects an item whose path is a symlink pointing outside the kit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ag-symlink-'))
+  await mkdir(join(dir, 'kit', 'commands'), { recursive: true })
+  await writeFile(join(dir, 'outside.md'), 'SECRET OUTSIDE THE KIT\n')
+  await symlink(join(dir, 'outside.md'), join(dir, 'kit', 'commands', 'innocent.md'))
+  await writeFile(
+    join(dir, 'kit', 'registry.json'),
+    JSON.stringify({
+      kit: 'mobile',
+      version: '1.0.0',
+      items: [
+        {
+          id: 'innocent', type: 'command', path: 'commands/innocent.md',
+          name: 'Innocent', description: 'd', tags: [],
+          provenance: { origin: 'original' },
+        },
+      ],
+    })
+  )
+  const { errors } = await validateKit(join(dir, 'kit'))
+  assert.ok(errors.some((e) => /resolves outside the kit directory/.test(e)))
 })
