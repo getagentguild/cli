@@ -1,7 +1,12 @@
-import { readFile, readdir, stat, realpath } from 'node:fs/promises'
-import { join, relative, sep, normalize } from 'node:path'
+import { readFile, readdir } from 'node:fs/promises'
+import { join, relative, normalize, posix, sep } from 'node:path'
 import { validateRegistry } from './registry.js'
 import { parseFrontmatter } from './frontmatter.js'
+import {
+  inspectRegisteredFile,
+  inspectSkillTree,
+  resolveKitRoot,
+} from './source-files.js'
 
 const REQUIRED_FRONTMATTER = {
   agent: ['name', 'description', 'tools', 'model'],
@@ -10,15 +15,6 @@ const REQUIRED_FRONTMATTER = {
 }
 
 const CONTENT_DIRS = ['agents', 'skills', 'commands']
-
-async function exists(path) {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
-}
 
 async function walkMarkdown(dir, out = []) {
   let entries
@@ -33,21 +29,6 @@ async function walkMarkdown(dir, out = []) {
     else if (entry.name.endsWith('.md')) out.push(full)
   }
   return out
-}
-
-// registry.js rejects ".." and absolute paths, but a path that is textually
-// clean can still resolve outside the kit via a symlink. stat() and readFile()
-// both follow symlinks, so without this a `command` item — which requires no
-// frontmatter and is therefore never parsed — could point at any file on disk
-// and validate clean, after which the installer would copy it into the buyer's
-// project. Resolve to a real path and require containment.
-async function resolvesInsideKit(kitRealRoot, target) {
-  try {
-    const real = await realpath(target)
-    return real === kitRealRoot || real.startsWith(kitRealRoot + sep)
-  } catch {
-    return false
-  }
 }
 
 export async function validateKit(kitDir) {
@@ -67,33 +48,54 @@ export async function validateKit(kitDir) {
   if (errors.length > 0) return { errors, counts }
 
   const registered = new Set()
-  const kitRealRoot = await realpath(kitDir).catch(() => kitDir)
+  const registeredSkillDirs = []
+  let kitRealRoot
+  try {
+    kitRealRoot = await resolveKitRoot(kitDir)
+  } catch (err) {
+    errors.push(err.message)
+    return { errors, counts }
+  }
 
   for (const item of registry.items) {
     counts[item.type] += 1
-    const itemPath = join(kitDir, item.path)
-    // normalize() so a registry path written as "./agents/a.md" matches the
-    // "agents/a.md" that relative() produces during the orphan sweep below.
-    // Without it a perfectly valid item reports itself as an unregistered file.
-    registered.add(normalize(item.path.split('/').join(sep)))
+    const normalizedItemPath = normalize(item.path.split('/').join(sep))
+    registered.add(normalizedItemPath)
+    if (item.type === 'skill') {
+      registeredSkillDirs.push(normalize(posix.dirname(item.path).split('/').join(sep)))
+    }
 
-    if (!(await exists(itemPath))) {
-      errors.push(`item "${item.id}": path ${item.path} does not exist on disk`)
+    const inspected = await inspectRegisteredFile({
+      kitDir,
+      kitRealRoot,
+      relativePath: item.path,
+    })
+    if (inspected.errors.length > 0) {
+      for (const error of inspected.errors) {
+        errors.push(`item "${item.id}" (${item.path}): ${error}`)
+      }
       continue
     }
 
-    if (!(await resolvesInsideKit(kitRealRoot, itemPath))) {
-      errors.push(
-        `item "${item.id}": path ${item.path} resolves outside the kit directory ` +
-          `(symlink?). Items must be real files inside the kit.`
-      )
-      continue
+    if (item.type === 'skill') {
+      const tree = await inspectSkillTree({
+        kitDir,
+        kitRealRoot,
+        skillDir: posix.dirname(item.path),
+      })
+      for (const error of tree.errors) errors.push(`item "${item.id}": ${error}`)
     }
 
     const required = REQUIRED_FRONTMATTER[item.type]
     if (required.length === 0) continue
 
-    const { data } = parseFrontmatter(await readFile(itemPath, 'utf8'))
+    let data
+    try {
+      data = parseFrontmatter(await readFile(inspected.path, 'utf8')).data
+    } catch (err) {
+      errors.push(`item "${item.id}" (${item.path}) could not be read: ${err.message}`)
+      continue
+    }
     for (const field of required) {
       if (!data[field]) {
         errors.push(`item "${item.id}" (${item.path}): missing frontmatter field "${field}"`)
@@ -105,7 +107,11 @@ export async function validateKit(kitDir) {
     const files = await walkMarkdown(join(kitDir, dir))
     for (const file of files) {
       const rel = relative(kitDir, file)
-      if (!registered.has(normalize(rel))) {
+      const normalizedRel = normalize(rel)
+      const isSkillAncillary =
+        dir === 'skills' &&
+        registeredSkillDirs.some((skillDir) => normalizedRel.startsWith(`${skillDir}${sep}`))
+      if (!registered.has(normalizedRel) && !isSkillAncillary) {
         errors.push(`${rel} exists on disk but has no registry entry`)
       }
     }

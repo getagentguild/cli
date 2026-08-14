@@ -111,9 +111,110 @@ test('rejects a path containing .. segments', () => {
   }
 })
 
-test('accepts an ordinary relative path', () => {
-  const ok = { ...valid, items: [{ ...valid.items[0], path: 'skills/x/SKILL.md' }] }
+test('accepts an ordinary canonical relative path', () => {
+  const ok = {
+    ...valid,
+    items: [{ ...valid.items[0], id: 'x', path: 'skills/x/SKILL.md' }],
+  }
   assert.deepEqual(validateRegistry(ok), [])
+})
+
+test('accepts only the exact path shape for each item type', () => {
+  const items = [
+    { id: 'reviewer', type: 'agent', path: 'agents/reviewer.md' },
+    { id: 'release', type: 'command', path: 'commands/release.md' },
+    { id: 'release-review', type: 'skill', path: 'skills/release-review/SKILL.md' },
+  ]
+
+  for (const item of items) {
+    const ok = { ...valid, items: [{ ...valid.items[0], ...item }] }
+    assert.deepEqual(validateRegistry(ok), [], `${item.type} path should pass`)
+  }
+})
+
+test('requires every registry path to use its exact item id', () => {
+  for (const item of [
+    { id: 'reviewer', type: 'agent', path: 'agents/other.md' },
+    { id: 'release', type: 'command', path: 'commands/ship.md' },
+    { id: 'release-review', type: 'skill', path: 'skills/other/SKILL.md' },
+    { id: 'unity-debugger', type: 'agent', path: 'agents/Unity-Debugger.md' },
+  ]) {
+    const bad = { ...valid, items: [{ ...valid.items[0], ...item }] }
+    assert.ok(
+      validateRegistry(bad).some((error) => /use the item id/.test(error)),
+      `${item.type} path ${item.path} should be rejected for id ${item.id}`
+    )
+  }
+})
+
+test('requires lowercase kebab-case item ids', () => {
+  for (const id of ['UnityDebugger', 'unity_debugger', 'unity--debugger', '-unity', 'unity-']) {
+    const bad = {
+      ...valid,
+      items: [{ ...valid.items[0], id, path: `skills/${id}/SKILL.md` }],
+    }
+    assert.ok(
+      validateRegistry(bad).some((error) => /lowercase kebab-case/.test(error)),
+      `${id} should be rejected`
+    )
+  }
+})
+
+test('rejects Windows reserved device names as item ids', () => {
+  for (const id of ['con', 'prn', 'aux', 'nul', 'com1', 'com9', 'lpt1', 'lpt9']) {
+    const bad = {
+      ...valid,
+      items: [{ ...valid.items[0], id, path: `skills/${id}/SKILL.md` }],
+    }
+    assert.ok(
+      validateRegistry(bad).some((error) => /reserved on Windows/.test(error)),
+      `${id} should be rejected`
+    )
+  }
+})
+
+test('rejects nested or non-Markdown agent and command paths', () => {
+  for (const [type, path] of [
+    ['agent', 'agents/nested/reviewer.md'],
+    ['agent', 'agents/reviewer.txt'],
+    ['command', 'commands/release/ship.md'],
+    ['command', 'commands/ship.txt'],
+  ]) {
+    const bad = { ...valid, items: [{ ...valid.items[0], type, path }] }
+    assert.ok(
+      validateRegistry(bad).some((error) => /must match .* exactly/.test(error)),
+      `${path} should be rejected`
+    )
+  }
+})
+
+test('rejects broad or non-canonical skill paths', () => {
+  for (const path of [
+    'SKILL.md',
+    'skills/SKILL.md',
+    'skills/release-review',
+    'skills/release-review/notes/SKILL.md',
+    'skills/./SKILL.md',
+  ]) {
+    const bad = { ...valid, items: [{ ...valid.items[0], path }] }
+    assert.ok(
+      validateRegistry(bad).some((error) => /skills\/<id>\/SKILL\.md exactly/.test(error)),
+      `${path} should be rejected`
+    )
+  }
+})
+
+test('rejects backslashes in registry paths', () => {
+  for (const path of ['skills\\release-review\\SKILL.md', 'agents\\..\\secret.md']) {
+    const bad = {
+      ...valid,
+      items: [{ ...valid.items[0], path }],
+    }
+    assert.ok(
+      validateRegistry(bad).some((error) => /backslashes/.test(error)),
+      `${path} should be rejected`
+    )
+  }
 })
 
 test('rejects an original item that carries third-party attribution', () => {

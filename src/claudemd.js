@@ -1,5 +1,9 @@
-import { readFile, writeFile, copyFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import {
+  inspectDestinationFile,
+  replaceDestinationFile,
+  resolveDestinationRoot,
+} from './destination-files.js'
 
 export const START = '<!-- agentguild:start -->'
 export const END = '<!-- agentguild:end -->'
@@ -21,25 +25,30 @@ export function mergeClaudeMd(existing, block) {
 }
 
 export async function writeClaudeMd({ projectDir, block, dryRun = false }) {
-  const path = join(projectDir, 'CLAUDE.md')
+  const projectRoot = await resolveDestinationRoot(projectDir)
+  const inspected = await inspectDestinationFile(projectRoot, 'CLAUDE.md')
+  const path = inspected.path
 
-  let existing = null
-  try {
-    existing = await readFile(path, 'utf8')
-  } catch {
-    existing = null
-  }
+  const existing = inspected.exists ? await readFile(path, 'utf8') : null
 
   const merged = mergeClaudeMd(existing, block)
   if (existing === merged) return { path, backedUp: null }
-  if (dryRun) return { path, backedUp: null }
 
   let backedUp = null
   if (existing !== null) {
-    backedUp = join(projectDir, 'CLAUDE.md.agentguild-backup')
-    await copyFile(path, backedUp)
+    const backup = await inspectDestinationFile(
+      projectRoot,
+      'CLAUDE.md.agentguild-backup'
+    )
+    backedUp = backup.path
   }
+  if (dryRun) return { path, backedUp: null }
 
-  await writeFile(path, merged)
+  // Preflight the main and backup paths before either write. Atomic replacement
+  // prevents a final-path symlink from being followed during the write.
+  if (backedUp !== null) {
+    await replaceDestinationFile(projectRoot, 'CLAUDE.md.agentguild-backup', existing)
+  }
+  await replaceDestinationFile(projectRoot, 'CLAUDE.md', merged)
   return { path, backedUp }
 }
