@@ -9,8 +9,23 @@ export const ALLOWED_LICENSES = [
 export const ITEM_TYPES = ['agent', 'skill', 'command']
 export const KIT_NAMES = ['engineering', 'marketing', 'mobile', 'games']
 
+const PATH_SHAPES = {
+  agent: 'agents/<id>.md',
+  command: 'commands/<id>.md',
+  skill: 'skills/<id>/SKILL.md',
+}
+const WINDOWS_DEVICE_NAMES = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+const ITEM_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function expectedPath(type, id) {
+  if (type === 'agent') return `agents/${id}.md`
+  if (type === 'command') return `commands/${id}.md`
+  if (type === 'skill') return `skills/${id}/SKILL.md`
+  return null
 }
 
 function validateItem(item, index, errors) {
@@ -27,21 +42,41 @@ function validateItem(item, index, errors) {
   if (item.type !== undefined && !ITEM_TYPES.includes(item.type)) {
     errors.push(`${at}: "type" must be one of ${ITEM_TYPES.join(', ')} (got "${item.type}")`)
   }
+  if (typeof item.id === 'string' && item.id.trim() !== '') {
+    if (!ITEM_ID.test(item.id)) {
+      errors.push(`${at}: "id" must be lowercase kebab-case (got "${item.id}")`)
+    } else if (WINDOWS_DEVICE_NAMES.test(item.id)) {
+      errors.push(`${at}: "id" is reserved on Windows (got "${item.id}")`)
+    }
+  }
   if (item.tags !== undefined && !Array.isArray(item.tags)) {
     errors.push(`${at}: "tags" must be an array`)
   }
 
-  // Paths are joined against the kit root by both the validator and the
-  // installer. An absolute path or a ".." segment escapes the kit directory,
-  // so the installer would read a file outside the kit and copy it into the
-  // buyer's project. Reject them here rather than relying on existence checks,
-  // which confirm a file is there but not that it is *inside* the kit.
+  // Registry paths are both a source boundary and an installation-layout
+  // contract. Keep them in one canonical POSIX form. In particular, a skill
+  // registered at the kit root would make the installer recursively copy the
+  // entire kit into the buyer's project.
   if (typeof item.path === 'string' && item.path.trim() !== '') {
     if (item.path.startsWith('/') || /^[A-Za-z]:/.test(item.path)) {
       errors.push(`${at}: "path" must be relative to the kit root (got "${item.path}")`)
     }
+    if (item.path.includes('\\')) {
+      errors.push(`${at}: "path" must use forward slashes, not backslashes (got "${item.path}")`)
+    }
     if (item.path.split('/').includes('..')) {
       errors.push(`${at}: "path" must not contain ".." segments (got "${item.path}")`)
+    }
+    const expected =
+      ITEM_TYPES.includes(item.type) && typeof item.id === 'string'
+        ? expectedPath(item.type, item.id)
+        : null
+    if (expected && item.path !== expected) {
+      errors.push(
+        `${at}: "path" for type "${item.type}" must match ` +
+          `${PATH_SHAPES[item.type]} exactly and use the item id ` +
+          `(expected "${expected}", got "${item.path}")`
+      )
     }
   }
 

@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { validateKit } from './validate.js'
 import { installItems } from './install.js'
 import { writeClaudeMd } from './claudemd.js'
+import { findProjectRoot } from './project.js'
 import {
   KIT_REPOS,
   checkAccess,
@@ -16,7 +17,7 @@ const HELP = `
 agentguild — install AgentGuild kits into your project
 
 Usage:
-  agentguild [dir]                  Install kits you have access to
+  agentguild [path]                 Install at the detected project root
   agentguild validate <dir>         Validate a kit directory (used by CI)
 
 Options:
@@ -24,8 +25,11 @@ Options:
   --from=<dir>     Install from a local kit directory instead of GitHub
   --yes            Accept defaults, no prompts
   --dry-run        Show what would change without writing
-  --update         Refresh cached kits before installing
+  --update         Pull cached kits before installing (new kits are always cloned)
   --help           Show this help
+
+Project roots are detected from .git, package.json, or a Unity project containing
+Assets and ProjectSettings/ProjectVersion.txt. Home and filesystem roots are refused.
 `.trim()
 
 export function parseArgs(argv) {
@@ -52,16 +56,45 @@ export function parseArgs(argv) {
   return opts
 }
 
-function claudeMdBlock(kits) {
-  const names = kits.map((k) => k.registry.kit).join(', ')
-  const total = kits.reduce((sum, k) => sum + k.registry.items.length, 0)
+export function claudeMdBlock(selections) {
+  const installed = selections.filter(({ itemIds }) => itemIds.length > 0)
+  const names = installed.map(({ kit }) => kit.registry.kit).join(', ')
+  const total = installed.reduce((sum, { itemIds }) => sum + itemIds.length, 0)
+  const itemLabel = total === 1 ? 'item' : 'items'
+  const selectionSummary =
+    total === 0
+      ? 'No AgentGuild items were selected in the latest installation run.'
+      : `The latest AgentGuild installation selected ${total} ${itemLabel} from ${names}.`
   return [
     `## AgentGuild`,
     ``,
-    `This project has ${total} AgentGuild items installed (${names}).`,
+    selectionSummary,
     `Agents live in .claude/agents, skills in .claude/skills, commands in .claude/commands.`,
-    `Re-run \`npx @agentguild/cli\` to update. Edited files are never overwritten.`,
+    `Re-run \`npx --yes --package=github:getagentguild/cli agentguild --update\` to update. Edited files are never overwritten.`,
   ].join('\n')
+}
+
+export function findSelectionCollisions(selections) {
+  const owners = new Map()
+  const collisions = []
+
+  for (const { kit, itemIds } of selections) {
+    const selected = new Set(itemIds)
+    for (const item of kit.registry.items) {
+      if (!selected.has(item.id)) continue
+      const key = `${item.type}:${item.id}`
+      const existing = owners.get(key)
+      if (existing) {
+        collisions.push(
+          `${item.type} "${item.id}" is selected from both ${existing} and ${kit.registry.kit}`
+        )
+      } else {
+        owners.set(key, kit.registry.kit)
+      }
+    }
+  }
+
+  return collisions
 }
 
 async function loadKitDir(kitDir) {
@@ -97,7 +130,13 @@ async function resolveKits(opts) {
       denied.push(name)
       continue
     }
-    const dir = await syncKit(name, cacheDir)
+    let dir
+    try {
+      dir = await syncKit(name, cacheDir, { update: opts.update })
+    } catch (err) {
+      console.error(`Could not prepare ${name}: ${err.message}`)
+      return null
+    }
     const kit = await loadKitDir(dir)
     if (kit) kits.push(kit)
   }
@@ -113,13 +152,18 @@ async function resolveKits(opts) {
 }
 
 export async function runInstall(opts) {
-  const projectDir = opts.target ?? process.cwd()
+  let projectDir
+  try {
+    projectDir = await findProjectRoot(opts.target ?? process.cwd())
+  } catch (err) {
+    console.error(`Could not determine the project root: ${err.message}`)
+    return 1
+  }
 
   const kits = await resolveKits(opts)
   if (kits === null) return 1
 
-  const totals = { written: 0, skipped: 0, conflicts: [] }
-
+  const selections = []
   for (const kit of kits) {
     let itemIds = kit.registry.items.map((i) => i.id)
     if (!opts.yes) {
@@ -132,24 +176,92 @@ export async function runInstall(opts) {
       itemIds = picked
     }
 
-    const res = await installItems({
-      kitDir: kit.kitDir,
-      registry: kit.registry,
-      itemIds,
-      projectDir,
-      dryRun: opts.dryRun,
-    })
+    selections.push({ kit, itemIds })
+  }
 
+  const collisions = findSelectionCollisions(selections)
+  if (collisions.length > 0) {
+    console.error('Cannot install overlapping items from multiple kits:')
+    for (const collision of collisions) console.error(`  • ${collision}`)
+    return 1
+  }
+
+  // Preflight every selected kit and both root-level instruction paths before
+  // the first write. This prevents a malformed destination in a later kit (or
+  // a CLAUDE.md/backup symlink) from leaving a partial installation behind.
+  const preflight = []
+  for (const { kit, itemIds } of selections) {
+    try {
+      preflight.push(
+        await installItems({
+          kitDir: kit.kitDir,
+          registry: kit.registry,
+          itemIds,
+          projectDir,
+          dryRun: true,
+        })
+      )
+    } catch (err) {
+      console.error(`Could not install ${kit.registry.kit}: ${err.message}`)
+      return 1
+    }
+  }
+
+  let claudePreflight
+  try {
+    claudePreflight = await writeClaudeMd({
+      projectDir,
+      block: claudeMdBlock(selections),
+      dryRun: true,
+    })
+  } catch (err) {
+    console.error(`Could not update CLAUDE.md: ${err.message}`)
+    return 1
+  }
+
+  const results = []
+  if (opts.dryRun) {
+    results.push(...preflight)
+  } else {
+    for (const { kit, itemIds } of selections) {
+      let res
+      try {
+        res = await installItems({
+          kitDir: kit.kitDir,
+          registry: kit.registry,
+          itemIds,
+          projectDir,
+          dryRun: false,
+        })
+      } catch (err) {
+        console.error(`Could not install ${kit.registry.kit}: ${err.message}`)
+        return 1
+      }
+      results.push(res)
+    }
+  }
+
+  const totals = { written: 0, skipped: 0, conflicts: [] }
+  for (const res of results) {
     totals.written += res.written.length
     totals.skipped += res.skipped.length
     totals.conflicts.push(...res.conflicts)
   }
 
-  const { backedUp } = await writeClaudeMd({
-    projectDir,
-    block: claudeMdBlock(kits),
-    dryRun: opts.dryRun,
-  })
+  let claudeResult = claudePreflight
+  if (!opts.dryRun) {
+    try {
+      claudeResult = await writeClaudeMd({
+        projectDir,
+        block: claudeMdBlock(selections),
+        dryRun: false,
+      })
+    } catch (err) {
+      console.error(`Could not update CLAUDE.md: ${err.message}`)
+      return 1
+    }
+  }
+  const { backedUp } = claudeResult
 
   const prefix = opts.dryRun ? 'Would install' : 'Installed'
   console.log(`\n${prefix} ${totals.written} file(s) into ${projectDir}`)
