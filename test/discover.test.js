@@ -232,6 +232,30 @@ test('pulls an existing cached kit only when update is requested', async () => {
   })
 })
 
+test('explains how to recover when a cached kit cannot fast-forward', async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), 'ag-cache-diverged-'))
+  const cachedKit = join(cacheDir, 'kit-mobile')
+  await mkdir(join(cachedKit, '.git'), { recursive: true })
+  const pullError = new Error('exit 128')
+  pullError.stderr = 'fatal: Not possible to fast-forward, aborting.'
+
+  await assert.rejects(
+    () =>
+      syncKit('mobile', cacheDir, {
+        update: true,
+        runner: async () => {
+          throw pullError
+        },
+      }),
+    (err) => {
+      assert.match(err.message, /could not update cached kit-mobile/i)
+      assert.match(err.message, /Rename .*kit-mobile and rerun/i)
+      assert.match(err.message, /without --update/i)
+      return true
+    }
+  )
+})
+
 test('diagnosis names the signed-in account when there is one', () => {
   const msg = diagnose('mobile', 'someuser')
   assert.match(msg, /kit-mobile/)

@@ -56,16 +56,45 @@ export function parseArgs(argv) {
   return opts
 }
 
-function claudeMdBlock(kits) {
-  const names = kits.map((k) => k.registry.kit).join(', ')
-  const total = kits.reduce((sum, k) => sum + k.registry.items.length, 0)
+export function claudeMdBlock(selections) {
+  const installed = selections.filter(({ itemIds }) => itemIds.length > 0)
+  const names = installed.map(({ kit }) => kit.registry.kit).join(', ')
+  const total = installed.reduce((sum, { itemIds }) => sum + itemIds.length, 0)
+  const itemLabel = total === 1 ? 'item' : 'items'
+  const selectionSummary =
+    total === 0
+      ? 'No AgentGuild items were selected in the latest installation run.'
+      : `The latest AgentGuild installation selected ${total} ${itemLabel} from ${names}.`
   return [
     `## AgentGuild`,
     ``,
-    `This project has ${total} AgentGuild items installed (${names}).`,
+    selectionSummary,
     `Agents live in .claude/agents, skills in .claude/skills, commands in .claude/commands.`,
     `Re-run \`npx --yes --package=github:getagentguild/cli agentguild --update\` to update. Edited files are never overwritten.`,
   ].join('\n')
+}
+
+export function findSelectionCollisions(selections) {
+  const owners = new Map()
+  const collisions = []
+
+  for (const { kit, itemIds } of selections) {
+    const selected = new Set(itemIds)
+    for (const item of kit.registry.items) {
+      if (!selected.has(item.id)) continue
+      const key = `${item.type}:${item.id}`
+      const existing = owners.get(key)
+      if (existing) {
+        collisions.push(
+          `${item.type} "${item.id}" is selected from both ${existing} and ${kit.registry.kit}`
+        )
+      } else {
+        owners.set(key, kit.registry.kit)
+      }
+    }
+  }
+
+  return collisions
 }
 
 async function loadKitDir(kitDir) {
@@ -150,6 +179,13 @@ export async function runInstall(opts) {
     selections.push({ kit, itemIds })
   }
 
+  const collisions = findSelectionCollisions(selections)
+  if (collisions.length > 0) {
+    console.error('Cannot install overlapping items from multiple kits:')
+    for (const collision of collisions) console.error(`  • ${collision}`)
+    return 1
+  }
+
   // Preflight every selected kit and both root-level instruction paths before
   // the first write. This prevents a malformed destination in a later kit (or
   // a CLAUDE.md/backup symlink) from leaving a partial installation behind.
@@ -175,7 +211,7 @@ export async function runInstall(opts) {
   try {
     claudePreflight = await writeClaudeMd({
       projectDir,
-      block: claudeMdBlock(kits),
+      block: claudeMdBlock(selections),
       dryRun: true,
     })
   } catch (err) {
@@ -217,7 +253,7 @@ export async function runInstall(opts) {
     try {
       claudeResult = await writeClaudeMd({
         projectDir,
-        block: claudeMdBlock(kits),
+        block: claudeMdBlock(selections),
         dryRun: false,
       })
     } catch (err) {

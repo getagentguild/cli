@@ -93,7 +93,17 @@ export async function syncKit(kit, cacheDir, options = {}) {
   const { dest, cached } = await inspectCache(cacheDir, kit)
 
   if (cached && update) {
-    await runner({ cmd: 'git', args: ['pull', '--ff-only'], cwd: dest })
+    try {
+      await runner({ cmd: 'git', args: ['pull', '--ff-only'], cwd: dest })
+    } catch (err) {
+      const detail = err.stderr?.trim() || err.message
+      throw new Error(
+        `could not update cached kit-${kit}; Git pull with --ff-only failed. ` +
+          `If the cache diverged, rename ${dest} and rerun to clone a clean cache. ` +
+          `Otherwise check your connection and GitHub access, or rerun without --update ` +
+          `to use the current cached copy unchanged. ${detail}`
+      )
+    }
   } else if (!cached) {
     await runner({
       cmd: 'git',
