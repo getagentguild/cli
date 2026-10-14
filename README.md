@@ -36,3 +36,20 @@ is backed up before its managed AgentGuild block is changed. Registry paths must
 canonical layouts `agents/<id>.md`, `commands/<id>.md`, and
 `skills/<id>/SKILL.md`. Symlinked or non-regular kit sources, cache checkouts, and project
 destinations are refused before the installer writes any selected item.
+
+## Kit working agreements in CLAUDE.md
+
+A kit can ship a short markdown file of working agreements that the installer adds to the managed
+AgentGuild block of `CLAUDE.md`, so every session starts with them. The kit's `registry.json` names it:
+
+```json
+"claudeMd": { "path": "CLAUDE-BLOCK.md", "requires": ["stage-ladder"] }
+```
+
+`path` is a markdown file at the kit root. `requires` (optional) lists item ids that must all be in the
+installation for the text to apply, so a partial install never refers to a skill that is not there. The
+file is validated with the kit (`agentguild validate`): it must be a regular file inside the kit (never a
+symlink), non-empty, under 6,144 bytes (the block is always in context), text, and must not contain the
+`agentguild` block markers. Without the field the block is the same five lines as before. The block is
+regenerated between its markers on every run, so changing the file and re-running replaces the text and
+a second run with no change writes nothing.

@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, normalize, posix, sep } from 'node:path'
 import { validateRegistry } from './registry.js'
+import { checkAgreementsFile } from './agreements.js'
 import { parseFrontmatter } from './frontmatter.js'
 import {
   inspectRegisteredFile,
@@ -102,6 +103,8 @@ export async function validateKit(kitDir) {
       }
     }
   }
+
+  errors.push(...(await checkAgreementsFile(kitDir, registry)))
 
   for (const dir of CONTENT_DIRS) {
     const files = await walkMarkdown(join(kitDir, dir))

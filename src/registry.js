@@ -120,6 +120,33 @@ function validateItem(item, index, errors) {
   }
 }
 
+const AGREEMENTS_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/
+
+// registry.claudeMd: { "path": "<file>.md", "requires": ["<item id>", ...] } (requires is optional).
+// The file sits at the kit root; its text joins the CLAUDE.md block when every required item is installed.
+function validateAgreements(value, items, errors) {
+  if (!isPlainObject(value)) {
+    errors.push('"claudeMd" must be an object like { "path": "CLAUDE-BLOCK.md" }')
+    return
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== 'path' && key !== 'requires') errors.push(`"claudeMd" has an unknown field "${key}"`)
+  }
+  if (typeof value.path !== 'string' || !AGREEMENTS_FILE.test(value.path)) {
+    errors.push('"claudeMd.path" must be a markdown file name at the kit root (for example "CLAUDE-BLOCK.md")')
+  }
+  if (value.requires !== undefined) {
+    if (!Array.isArray(value.requires) || value.requires.some((id) => typeof id !== 'string')) {
+      errors.push('"claudeMd.requires" must be an array of item ids')
+    } else {
+      const known = new Set(items.map((item) => item && item.id))
+      for (const id of value.requires) {
+        if (!known.has(id)) errors.push(`"claudeMd.requires" names "${id}", which is not an item in this kit`)
+      }
+    }
+  }
+}
+
 export function validateRegistry(registry) {
   const errors = []
   if (!isPlainObject(registry)) return ['registry must be a JSON object']
@@ -136,6 +163,7 @@ export function validateRegistry(registry) {
   }
 
   registry.items.forEach((item, i) => validateItem(item, i, errors))
+  if (registry.claudeMd !== undefined) validateAgreements(registry.claudeMd, registry.items, errors)
 
   const seenIds = new Set()
   const seenPaths = new Set()
