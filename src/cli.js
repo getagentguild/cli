@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { validateKit } from './validate.js'
 import { installItems } from './install.js'
 import { writeClaudeMd } from './claudemd.js'
+import { readAgreements } from './agreements.js'
 import { findProjectRoot } from './project.js'
 import {
   KIT_REPOS,
@@ -65,13 +66,21 @@ export function claudeMdBlock(selections) {
     total === 0
       ? 'No AgentGuild items were selected in the latest installation run.'
       : `The latest AgentGuild installation selected ${total} ${itemLabel} from ${names}.`
-  return [
+  const lines = [
     `## AgentGuild`,
     ``,
     selectionSummary,
     `Agents live in .claude/agents, skills in .claude/skills, commands in .claude/commands.`,
     `Re-run \`npx --yes --package=github:getagentguild/cli agentguild --update\` to update. Edited files are never overwritten.`,
-  ].join('\n')
+  ]
+  // A kit's own working agreements, when everything they refer to is installed.
+  for (const { kit, itemIds } of installed) {
+    const { agreements } = kit
+    if (agreements && agreements.requires.every((id) => itemIds.includes(id))) {
+      lines.push('', agreements.text)
+    }
+  }
+  return lines.join('\n')
 }
 
 export function findSelectionCollisions(selections) {
@@ -105,7 +114,7 @@ async function loadKitDir(kitDir) {
     return null
   }
   const registry = JSON.parse(await readFile(join(kitDir, 'registry.json'), 'utf8'))
-  return { kitDir, registry }
+  return { kitDir, registry, agreements: await readAgreements(kitDir, registry) }
 }
 
 async function resolveKits(opts) {
