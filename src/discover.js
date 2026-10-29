@@ -12,6 +12,21 @@ export const KIT_REPOS = {
   mobile: `${ORG}/kit-mobile`,
   games: `${ORG}/kit-games`,
 }
+// What buyers call each kit. Games is sold as AI Games Kit; the other three keep their own names.
+export const KIT_NAMES = {
+  engineering: 'Engineering Kit',
+  marketing: 'Marketing Kit',
+  mobile: 'Mobile Kit',
+  games: 'AI Games Kit',
+}
+// Where a kit is sold, for the message a buyer without access sees. Only the Games kit is on sale.
+export const KIT_STORES = {
+  games: 'https://gameskit.ai',
+}
+
+export function kitName(kit) {
+  return Object.hasOwn(KIT_NAMES, kit) ? KIT_NAMES[kit] : `the ${kit} kit`
+}
 
 const defaultRunner = ({ cmd, args, cwd }) => execFileAsync(cmd, args, { cwd })
 
@@ -33,7 +48,7 @@ async function inspectCache(cacheDir, kit) {
   const lexicalRoot = resolve(cacheDir)
   const rootInfo = await lstat(lexicalRoot)
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-    throw new Error('AgentGuild cache must be a real directory, not a symbolic link')
+    throw new Error('The kit cache must be a real directory, not a symbolic link')
   }
 
   const cacheRoot = await realpath(lexicalRoot)
@@ -55,7 +70,7 @@ async function inspectCache(cacheDir, kit) {
 
   const resolvedDest = await realpath(dest)
   if (!isContained(cacheRoot, resolvedDest)) {
-    throw new Error(`cached kit-${kit} resolves outside the AgentGuild cache`)
+    throw new Error(`cached kit-${kit} resolves outside the kit cache`)
   }
 
   const gitMarker = join(resolvedDest, '.git')
@@ -140,6 +155,10 @@ export function diagnose(kit, ghUser) {
     )
   }
 
-  lines.push(`If you have not purchased this kit yet, use AgentGuild's current checkout link.`)
+  lines.push(
+    Object.hasOwn(KIT_STORES, kit)
+      ? `If you have not purchased ${kitName(kit)} yet, you can buy it at ${KIT_STORES[kit]}.`
+      : `If you have not purchased this kit yet, use its current checkout link.`
+  )
   return lines.join('\n')
 }

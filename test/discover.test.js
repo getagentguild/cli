@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { checkAccess, syncKit, diagnose, KIT_REPOS } from '../src/discover.js'
+import { checkAccess, syncKit, diagnose, KIT_NAMES, KIT_REPOS, KIT_STORES, kitName } from '../src/discover.js'
 
 const ok = async () => ({ stdout: 'ref\tHEAD\n', stderr: '' })
 const denied = async () => {
@@ -266,4 +266,19 @@ test('diagnosis names the signed-in account when there is one', () => {
 test('diagnosis tells an unauthenticated user how to sign in', () => {
   const msg = diagnose('mobile', null)
   assert.match(msg, /gh auth login/)
+})
+
+test('every kit has the name buyers know it by', () => {
+  assert.deepEqual(Object.keys(KIT_NAMES).sort(), Object.keys(KIT_REPOS).sort())
+  assert.equal(kitName('games'), 'AI Games Kit')
+  assert.equal(kitName('mobile'), 'Mobile Kit')
+  assert.equal(kitName('unknown'), 'the unknown kit')
+  assert.ok(Object.keys(KIT_STORES).every((kit) => Object.hasOwn(KIT_REPOS, kit)))
+})
+
+test('diagnosis points a Games buyer without access at the store', () => {
+  const msg = diagnose('games', null)
+  assert.match(msg, /getagentguild\/kit-games/)
+  assert.match(msg, /purchased AI Games Kit yet, you can buy it at https:\/\/gameskit\.ai\./)
+  assert.doesNotMatch(diagnose('mobile', null), /gameskit/)
 })
