@@ -26,7 +26,10 @@ test('no old brand name in the installer, its docs or its tests', async () => {
   const stray = []
   for await (const file of walk(root)) {
     const path = relative(root, file).split(sep).join('/')
-    if (path === 'test/brand.test.js' || path === 'package-lock.json') continue
+    // The published-installer fixtures are the exact bytes old installs hold, and test/compat.test.js checks that an
+    // update replaces the old wording, so both name it on purpose.
+    const exempt = ['test/brand.test.js', 'test/compat.test.js', 'package-lock.json']
+    if (exempt.includes(path) || path.startsWith('test/fixtures/published-f313b70/')) continue
     const lines = (await readFile(file, 'utf8')).split('\n')
     lines.forEach((line, index) => {
       if (OLD_BRAND.test(line)) stray.push(`${path}:${index + 1}: ${line.trim().slice(0, 160)}`)
