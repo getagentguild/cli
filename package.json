@@ -1,9 +1,9 @@
 {
   "name": "@agentguild/cli",
   "version": "0.1.0",
-  "description": "Install AgentGuild agents, skills, and commands into your project's .claude/ folder",
+  "description": "Install a kit's agents, skills, and commands (such as AI Games Kit) into your project's .claude/ folder",
   "type": "module",
-  "bin": { "agentguild": "./bin/agentguild.js" },
+  "bin": { "agentguild": "./bin/agentguild.js", "aigameskit": "./bin/agentguild.js" },
   "engines": { "node": ">=22" },
   "files": ["bin", "src"],
   "scripts": {

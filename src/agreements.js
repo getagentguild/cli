@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { inspectRegisteredFile, resolveKitRoot } from './source-files.js'
 
 // A kit may ship a short markdown file of working agreements. The installer adds it to the
-// AgentGuild block of the buyer's CLAUDE.md, so it is read in every session. Keep it small:
+// managed block of the buyer's CLAUDE.md, so it is read in every session. Keep it small:
 // the block is always in context, and the specialist detail belongs in the skills.
 export const MAX_AGREEMENTS_BYTES = 6144
 const BLOCK_MARKER = '<!-- agentguild'

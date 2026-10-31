@@ -8,6 +8,7 @@ import { readAgreements } from './agreements.js'
 import { findProjectRoot } from './project.js'
 import {
   KIT_REPOS,
+  kitName,
   checkAccess,
   syncKit,
   currentGitHubUser,
@@ -15,7 +16,8 @@ import {
 } from './discover.js'
 
 const HELP = `
-agentguild — install AgentGuild kits into your project
+agentguild — install a kit's agents, skills and commands into your project
+(aigameskit is the same command; --kit=games installs AI Games Kit)
 
 Usage:
   agentguild [path]                 Install at the detected project root
@@ -59,15 +61,15 @@ export function parseArgs(argv) {
 
 export function claudeMdBlock(selections) {
   const installed = selections.filter(({ itemIds }) => itemIds.length > 0)
-  const names = installed.map(({ kit }) => kit.registry.kit).join(', ')
+  const names = installed.map(({ kit }) => kitName(kit.registry.kit)).join(', ')
   const total = installed.reduce((sum, { itemIds }) => sum + itemIds.length, 0)
   const itemLabel = total === 1 ? 'item' : 'items'
   const selectionSummary =
     total === 0
-      ? 'No AgentGuild items were selected in the latest installation run.'
-      : `The latest AgentGuild installation selected ${total} ${itemLabel} from ${names}.`
+      ? 'No kit items were selected in the latest installation run.'
+      : `The latest kit installation selected ${total} ${itemLabel} from ${names}.`
   const lines = [
-    `## AgentGuild`,
+    installed.length === 1 ? `## ${kitName(installed[0].kit.registry.kit)}` : `## Installed kits`,
     ``,
     selectionSummary,
     `Agents live in .claude/agents, skills in .claude/skills, commands in .claude/commands.`,

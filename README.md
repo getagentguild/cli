@@ -1,6 +1,7 @@
-# AgentGuild CLI
+# Kit installer
 
-Installs AgentGuild agents, skills, and commands into a project's `.claude/` folder.
+Installs a kit's agents, skills, and commands into a project's `.claude/` folder. The kit on sale is
+**AI Games Kit** (`--kit=games`, [gameskit.ai](https://gameskit.ai)).
 Requires Node.js 22 or newer and an authenticated GitHub CLI account with access to the
 selected private kit repository.
 
@@ -9,6 +10,10 @@ The npm package is not published yet. Run the public installer directly from Git
 ```bash
 npx --yes --package=github:getagentguild/cli agentguild --kit=games
 ```
+
+`aigameskit` is the same command (`npx --yes --package=github:getagentguild/cli aigameskit --kit=games`). The
+`agentguild` name, the `getagentguild` organisation, the `<!-- agentguild:start -->` block markers and the
+`~/.agentguild/cache` folder keep their names, so installs made before the rename keep updating.
 
 Run the command anywhere inside a project, or pass a project path explicitly. The CLI
 walks upward to the nearest defensible root identified by `.git`, `package.json`, or the
@@ -32,7 +37,7 @@ agentguild validate /path/to/kit
 
 The installer can install the complete kit or an interactive selection. Unchanged files
 are skipped, modified files are preserved as conflicts, and existing `CLAUDE.md` content
-is backed up before its managed AgentGuild block is changed. Registry paths must use the
+is backed up before its managed block is changed. Registry paths must use the
 canonical layouts `agents/<id>.md`, `commands/<id>.md`, and
 `skills/<id>/SKILL.md`. Symlinked or non-regular kit sources, cache checkouts, and project
 destinations are refused before the installer writes any selected item.
@@ -40,7 +45,7 @@ destinations are refused before the installer writes any selected item.
 ## Kit working agreements in CLAUDE.md
 
 A kit can ship a short markdown file of working agreements that the installer adds to the managed
-AgentGuild block of `CLAUDE.md`, so every session starts with them. The kit's `registry.json` names it:
+block of `CLAUDE.md`, so every session starts with them. The kit's `registry.json` names it:
 
 ```json
 "claudeMd": { "path": "CLAUDE-BLOCK.md", "requires": ["stage-ladder"] }

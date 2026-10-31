@@ -45,7 +45,8 @@ test('CLAUDE.md block counts only the selected items', () => {
     },
   ])
 
-  assert.match(block, /latest AgentGuild installation selected 2 items from games/)
+  assert.match(block, /latest kit installation selected 2 items from AI Games Kit/)
+  assert.match(block, /^## AI Games Kit$/m)
   assert.doesNotMatch(block, /selected 3 items/)
 })
 
@@ -57,7 +58,7 @@ test('CLAUDE.md block uses singular item grammar', () => {
     },
   ])
 
-  assert.match(block, /latest AgentGuild installation selected 1 item from games/)
+  assert.match(block, /latest kit installation selected 1 item from AI Games Kit/)
 })
 
 test('CLAUDE.md block handles an empty latest selection honestly', () => {
@@ -68,8 +69,22 @@ test('CLAUDE.md block handles an empty latest selection honestly', () => {
     },
   ])
 
-  assert.match(block, /No AgentGuild items were selected in the latest installation run/)
+  assert.match(block, /No kit items were selected in the latest installation run/)
+  assert.match(block, /^## Installed kits$/m)
   assert.doesNotMatch(block, /from \./)
+})
+
+test('CLAUDE.md block names each kit as buyers know it and keeps the update command', () => {
+  const block = claudeMdBlock([
+    { kit: { registry: { kit: 'games', items: [{ id: 'one' }] } }, itemIds: ['one'] },
+    { kit: { registry: { kit: 'mobile', items: [{ id: 'two' }] } }, itemIds: ['two'] },
+    { kit: { registry: { kit: 'local-test', items: [{ id: 'three' }] } }, itemIds: ['three'] },
+  ])
+
+  assert.match(block, /^## Installed kits$/m)
+  assert.match(block, /selected 3 items from AI Games Kit, Mobile Kit, the local-test kit\./)
+  // Installs made under the old name keep updating with the same command.
+  assert.match(block, /npx --yes --package=github:getagentguild\/cli agentguild --update/)
 })
 
 test('detects destination collisions across selected kits before installation', () => {
